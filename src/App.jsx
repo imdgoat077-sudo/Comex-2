@@ -41,11 +41,13 @@ export default function App() {
       window.nexusNative.tabs.onUpdate((tabId, data) => {
         // Main process signals a new-window request → create a new Comex tab
         if (tabId === '__new_tab__' && data.url) {
-          // Use a ref-stable callback via functional state update to avoid stale closure
+          const newTabId = data.newTabId || `tab-${Date.now()}`;
+          
+          window.nexusNative.tabs.create(newTabId, data.url);
+          // Let the useEffect handle sync to main process to avoid race conditions
+          // window.nexusNative.tabs.setActive(newTabId);
+          
           setTabs(prevTabs => {
-            const newTabId = data.newTabId || `tab-${Date.now()}`;
-            window.nexusNative.tabs.create(newTabId, data.url);
-            window.nexusNative.tabs.setActive(newTabId);
             const newTab = {
               id: newTabId,
               title: data.url,
@@ -57,9 +59,10 @@ export default function App() {
               canGoBack: false,
               canGoForward: false,
             };
-            setActiveTabId(newTabId);
             return [...prevTabs, newTab];
           });
+          
+          setActiveTabId(newTabId);
           return;
         }
 
@@ -361,6 +364,18 @@ export default function App() {
         const newTabId = `tab-${Date.now()}`;
         const nextUrl = target || 'comex://launchpad';
 
+        // Pre-emptively adjust bounds for chat drawer before tab activation
+        if (window.nexusNative?.tabs?.setBounds) {
+          const chatWidth = Math.min(440, Math.round(window.innerWidth * 0.92));
+          window.nexusNative.tabs.setBounds({
+            x: 0,
+            y: 138,
+            width: Math.max(0, window.innerWidth - chatWidth),
+            height: Math.max(0, window.innerHeight - 138),
+            isHidden: false
+          });
+        }
+
         if (window.nexusNative?.tabs) {
           window.nexusNative.tabs.create(newTabId, nextUrl);
           window.nexusNative.tabs.setActive(newTabId);
@@ -384,14 +399,14 @@ export default function App() {
 
         requestAnimationFrame(() => {
           window.dispatchEvent(new CustomEvent('comex-landing-prompt', {
-            detail: { prompt, visibleTabId: newTabId }
+            detail: { prompt, visibleTabId: newTabId, intent }
           }));
         });
         return;
       }
 
       setIsChatOpen(true);
-      window.dispatchEvent(new CustomEvent('comex-landing-prompt', { detail: { prompt } }));
+      window.dispatchEvent(new CustomEvent('comex-landing-prompt', { detail: { prompt, intent } }));
     } catch (err) {
       console.error('Intent classification failed:', err);
       setIsChatOpen(true);

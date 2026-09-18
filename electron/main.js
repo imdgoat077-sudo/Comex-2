@@ -116,16 +116,27 @@ function syncActiveView() {
   
   console.log('[SYNC] contentView children after add:', mainWindow.contentView.children?.length || 0);
 
-  // Set the view bounds BEFORE making it visible
-  // This ensures the view appears in the correct position
+  // Clamp bounds to prevent child view from overflowing window and snapping to (0,0)
+  const winBounds = mainWindow.getContentBounds();
+  const clampedX = Math.max(0, Math.round(currentBounds.x || 0));
+
+  // Ensure view.setBounds never sets y <= 0 unless explicitly in fullscreen mode
+  const isFullScreen = typeof mainWindow.isFullScreen === 'function' && mainWindow.isFullScreen();
+  const rawY = Math.round(currentBounds.y || 0);
+  const minChromeTop = isFullScreen ? 0 : 70; // Header + Navbar + Bookmarks bar threshold
+  const clampedY = isFullScreen ? Math.max(0, rawY) : Math.max(minChromeTop, rawY);
+
+  const maxWidth = Math.max(0, winBounds.width - clampedX);
+  const maxHeight = Math.max(0, winBounds.height - clampedY);
+
   const finalBounds = {
-    x: Math.round(currentBounds.x || 0),
-    y: Math.round(currentBounds.y || 0),
-    width: Math.max(0, Math.round(currentBounds.width || 0)),
-    height: Math.max(0, Math.round(currentBounds.height || 0)),
+    x: clampedX,
+    y: clampedY,
+    width: Math.min(Math.max(0, Math.round(currentBounds.width || 0)), maxWidth),
+    height: Math.min(Math.max(0, Math.round(currentBounds.height || 0)), maxHeight),
   };
-  
-  console.log('[SYNC] Setting view bounds:', JSON.stringify(finalBounds));
+
+  console.log('[SYNC] Setting clamped view bounds:', JSON.stringify(finalBounds));
   view.setBounds(finalBounds);
 
   // Make the view visible AFTER bounds are set

@@ -129,19 +129,36 @@ export default function MarkdownRenderer({ content }) {
 
               if (!trimmed) return <div key={lIdx} className="markdown-spacer" />;
 
+              // Check headings from most-specific (####) to least (##) to avoid substring matches
+              if (trimmed.startsWith('#### ')) {
+                return (
+                  <h5 key={lIdx} className="markdown-h5">
+                    {renderFormattedLine(trimmed.slice(5))}
+                  </h5>
+                );
+              }
+
               if (trimmed.startsWith('### ')) {
                 return (
                   <h4 key={lIdx} className="markdown-h4">
-                    {renderFormattedLine(trimmed.replace('### ', ''))}
+                    {renderFormattedLine(trimmed.slice(4))}
                   </h4>
                 );
               }
 
-              if (trimmed.startsWith('#### ')) {
+              if (trimmed.startsWith('## ')) {
                 return (
-                  <h5 key={lIdx} className="markdown-h5">
-                    {renderFormattedLine(trimmed.replace('#### ', ''))}
-                  </h5>
+                  <h3 key={lIdx} className="markdown-h3">
+                    {renderFormattedLine(trimmed.slice(3))}
+                  </h3>
+                );
+              }
+
+              if (trimmed.startsWith('# ')) {
+                return (
+                  <h2 key={lIdx} className="markdown-h2">
+                    {renderFormattedLine(trimmed.slice(2))}
+                  </h2>
                 );
               }
 
@@ -154,6 +171,23 @@ export default function MarkdownRenderer({ content }) {
                     </li>
                   </ul>
                 );
+              }
+
+              // Numbered list: 1. item
+              const numberedMatch = /^(\d+)\.\s+(.+)$/.exec(trimmed);
+              if (numberedMatch) {
+                return (
+                  <ol key={lIdx} className="markdown-ol" start={parseInt(numberedMatch[1], 10)}>
+                    <li className="markdown-li">
+                      {renderFormattedLine(numberedMatch[2])}
+                    </li>
+                  </ol>
+                );
+              }
+
+              // Horizontal rule
+              if (trimmed === '---' || trimmed === '***' || trimmed === '___') {
+                return <hr key={lIdx} className="markdown-hr" />;
               }
 
               return (

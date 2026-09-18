@@ -33,52 +33,42 @@ export default function BrowserCanvas({
   useEffect(() => {
     if (!isElectron || !window.nexusNative?.tabs) return;
 
-    const CHROME_TOP_PX = 78;       // 42 (topbar/tabs) + 32 (toolbar/address)
-    const CHROME_TOP_WITH_BOOKMARKS_PX = 110; // 78 + 32 (bookmarks bar)
-    const CONTENT_VIEW_TOP_OFFSET_PX = 28;   // macOS hiddenInset title bar inset
-
     const sendBounds = () => {
       const el = canvasRef.current;
-      if (!el) {
-        console.log('[CANVAS] sendBounds: canvasRef.current is null, skipping');
-        return;
+      const bodyLayoutEl = document.querySelector('.browser-body-layout');
+      const chatDrawerEl = document.querySelector('.chat-drawer');
+
+      // Determine drawer width directly from DOM if open, otherwise fallback to standard calculated width
+      let drawerWidth = 0;
+      if (isChatOpen) {
+        if (chatDrawerEl) {
+          const drawerRect = chatDrawerEl.getBoundingClientRect();
+          drawerWidth = Math.round(drawerRect.width);
+        }
+        if (!drawerWidth) {
+          drawerWidth = Math.min(440, Math.round(window.innerWidth * 0.92));
+        }
       }
 
-      const chatWidth = isChatOpen ? Math.min(440, Math.round(window.innerWidth * 0.92)) : 0;
       const hidden = isInternalUrl(activeTab?.url);
 
-      console.log('[CANVAS] sendBounds called');
-      console.log('[CANVAS] activeTab.url:', activeTab?.url);
-      console.log('[CANVAS] isInternalUrl:', hidden);
-      console.log('[CANVAS] isChatOpen:', isChatOpen);
-      console.log('[CANVAS] chatWidth:', chatWidth);
-      console.log('[CANVAS] window.innerWidth:', window.innerWidth);
-      console.log('[CANVAS] window.innerHeight:', window.innerHeight);
+      // macOS hiddenInset titlebar adds 28px to the content view coordinate space
+      const MACOS_TITLEBAR_OFFSET = 28;
 
-      // CRITICAL FIX: The WebContentsView uses BrowserWindow native coordinates,
-      // where y=0 is the top of the window content view (below macOS traffic lights).
-      // The React renderer viewport (window.innerHeight) is in CSS pixels and includes
-      // the full client area.
-      //
-      // To calculate the correct WebContentsView height:
-      // - The view starts at y = CHROME_TOP_WITH_BOOKMARKS_PX + CONTENT_VIEW_TOP_OFFSET_PX
-      // - The view should extend to the bottom of the window
-      // - Available height = window.innerHeight - CHROME_TOP_WITH_BOOKMARKS_PX
-      //
-      // This ensures the view occupies the space BELOW the chrome without overlapping it.
-      const viewStartY = CHROME_TOP_WITH_BOOKMARKS_PX + CONTENT_VIEW_TOP_OFFSET_PX;
-      const width = Math.max(0, window.innerWidth - chatWidth);
-      
-      // The height is the remaining space from where the view starts to the bottom of the window.
-      // Since the React viewport already accounts for the chrome in its layout,
-      // we can use the canvas element's actual rendered height.
-      const canvasRect = el.getBoundingClientRect();
-      
-      // CRITICAL FIX: If canvasRect.height is 0 (e.g. display: none or not painted yet),
-      // fallback to calculating based on window.innerHeight
-      const height = canvasRect.height > 0 
-        ? canvasRect.height 
-        : Math.max(0, window.innerHeight - CHROME_TOP_WITH_BOOKMARKS_PX);
+      const bodyRect = bodyLayoutEl
+        ? bodyLayoutEl.getBoundingClientRect()
+        : (el ? el.getBoundingClientRect() : { top: 0, height: window.innerHeight, width: window.innerWidth });
+
+      // Calculate view top in Electron coordinate space (minimum MACOS_TITLEBAR_OFFSET to prevent covering titlebar/navbar)
+      const topOffset = bodyRect.top > 0 ? bodyRect.top : 80;
+      const viewStartY = Math.max(MACOS_TITLEBAR_OFFSET, Math.round(topOffset + MACOS_TITLEBAR_OFFSET));
+
+      // Clip the right boundary by the ChatDrawer width: width = containerRect.width - (isDrawerOpen ? drawerWidth : 0)
+      const containerWidth = bodyRect.width || window.innerWidth;
+      const width = Math.max(0, Math.round(containerWidth - (isChatOpen ? drawerWidth : 0)));
+
+      // Ensure height never extends past window bottom
+      const height = Math.max(0, Math.min(Math.round(bodyRect.height), window.innerHeight - Math.round(bodyRect.top)));
 
       const bounds = {
         x: 0,
@@ -88,12 +78,7 @@ export default function BrowserCanvas({
         isHidden: hidden,
       };
 
-      console.log('[CANVAS] canvasRect.height:', canvasRect.height);
-      console.log('[CANVAS] Calculated viewStartY:', viewStartY);
-      console.log('[CANVAS] Calculated height:', height);
-      console.log('[CANVAS] Total coverage (y + height):', viewStartY + height);
       console.log('[CANVAS] Sending bounds to main process:', JSON.stringify(bounds));
-
       window.nexusNative.tabs.setBounds(bounds);
     };
 

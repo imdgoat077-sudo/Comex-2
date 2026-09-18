@@ -95,5 +95,12 @@
     "mode": "cache_first",
     "maxCacheFirstWaitSeconds": 60,
     "maxRateLimitWaitSeconds": 300
+  },
+  "graph_memory": {
+    "enabled": true,
+    "db_path_env": "GRAPH_DB_PATH",
+    "staleness_minutes": 30,
+    "max_args_json_bytes": 4096,
+    "debug_endpoints_enabled": true
   }
 }
