@@ -57,21 +57,22 @@ export default function BrowserCanvas({
 
       const bodyRect = bodyLayoutEl
         ? bodyLayoutEl.getBoundingClientRect()
-        : (el ? el.getBoundingClientRect() : { top: 0, height: window.innerHeight, width: window.innerWidth });
+        : (el ? el.getBoundingClientRect() : { top: 0, left: 0, height: window.innerHeight, width: window.innerWidth });
 
       // Calculate view top in Electron coordinate space (minimum MACOS_TITLEBAR_OFFSET to prevent covering titlebar/navbar)
       const topOffset = bodyRect.top > 0 ? bodyRect.top : 80;
       const viewStartY = Math.max(MACOS_TITLEBAR_OFFSET, Math.round(topOffset + MACOS_TITLEBAR_OFFSET));
+      const viewStartX = Math.max(0, Math.round(bodyRect.left || 0));
 
       // Clip the right boundary by the ChatDrawer width: width = containerRect.width - (isDrawerOpen ? drawerWidth : 0)
-      const containerWidth = bodyRect.width || window.innerWidth;
+      const containerWidth = bodyRect.width || (window.innerWidth - viewStartX);
       const width = Math.max(0, Math.round(containerWidth - (isChatOpen ? drawerWidth : 0)));
 
       // Ensure height never extends past window bottom
       const height = Math.max(0, Math.min(Math.round(bodyRect.height), window.innerHeight - Math.round(bodyRect.top)));
 
       const bounds = {
-        x: 0,
+        x: viewStartX,
         y: viewStartY,
         width,
         height,

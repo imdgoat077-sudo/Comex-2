@@ -1,11 +1,9 @@
 .modal-backdrop {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  inset: 0;
+  background: rgba(31, 36, 33, 0.35);
   backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   z-index: 200;
   display: flex;
   align-items: center;
@@ -16,10 +14,11 @@
 .modal-content {
   width: 100%;
   max-width: 480px;
-  border-radius: var(--radius-xl);
+  border-radius: 20px;
   padding: 24px;
-  background: rgba(18, 22, 32, 0.95);
-  border: 1px solid var(--border-glass-bright);
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--surface-container-high);
+  box-shadow: 0 16px 40px -8px rgba(31, 36, 33, 0.12), 0 2px 8px rgba(31, 36, 33, 0.06);
 }
 
 .modal-header {
@@ -27,8 +26,8 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: 20px;
-  border-bottom: 1px solid var(--border-glass);
-  padding-bottom: 12px;
+  border-bottom: 1px solid var(--surface-container);
+  padding-bottom: 14px;
 }
 
 .modal-title-group {
@@ -38,49 +37,52 @@
 }
 
 .modal-icon {
-  color: var(--accent-primary);
+  color: var(--primary);
 }
 
 .modal-header h3 {
   font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--text-main);
+  font-weight: 600;
+  color: var(--on-surface);
 }
 
 .shortcuts-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .shortcut-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 10px 14px;
+  background: var(--surface-container-low);
+  border-radius: 12px;
+  border: 1px solid var(--surface-container-high);
 }
 
 .shortcut-desc {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 0.88rem;
-  color: var(--text-main);
+  font-size: 13px;
+  color: var(--on-surface);
+  font-weight: 500;
 }
 
 .sc-icon {
-  color: var(--accent-cyan);
+  color: var(--primary);
 }
 
 .shortcut-key {
-  background: rgba(0, 0, 0, 0.6);
-  border: 1px solid var(--border-glass-bright);
-  padding: 4px 8px;
-  border-radius: var(--radius-xs);
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--surface-container-high);
+  padding: 3px 8px;
+  border-radius: 6px;
   font-family: var(--font-mono);
-  font-size: 0.78rem;
-  color: var(--accent-amber);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--on-surface-variant);
+  box-shadow: 0 1px 2px rgba(31, 36, 33, 0.04);
 }

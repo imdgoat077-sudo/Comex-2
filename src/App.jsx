@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import AppSidebar from './components/Sidebar/AppSidebar';
 import BrowserNavbar from './components/Navbar/BrowserNavbar';
 import BookmarksBar from './components/Bookmarks/BookmarksBar';
 import BrowserCanvas from './components/Canvas/BrowserCanvas';
@@ -25,6 +26,8 @@ export default function App() {
 
   const [activeTabId, setActiveTabId] = useState('tab-1');
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [activeSidebarView, setActiveSidebarView] = useState('canvas');
   const [unreadCount, setUnreadCount] = useState(0);
   const [currentTheme, setCurrentTheme] = useState('dark');
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
@@ -293,6 +296,9 @@ export default function App() {
         } else if (e.key === 'j' || e.key === 'J') {
           e.preventDefault();
           handleToggleChat();
+        } else if (e.key === 'b' || e.key === 'B') {
+          e.preventDefault();
+          setIsSidebarOpen(prev => !prev);
         }
       }
     };
@@ -300,6 +306,25 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeTabId, isChatOpen]);
+
+  // Sidebar navigation view selection
+  const handleSelectSidebarView = (view) => {
+    setActiveSidebarView(view);
+    if (view === 'canvas') {
+      if (activeTab?.url && activeTab.url !== 'comex://launchpad') {
+        // active tab canvas
+      } else {
+        handleGoHome();
+      }
+    } else if (view === 'copilot') {
+      setIsChatOpen(true);
+    } else if (view === 'brain') {
+      setIsChatOpen(true);
+      window.dispatchEvent(new CustomEvent('comex-open-brain'));
+    } else if (view === 'research' || view === 'collections' || view === 'history') {
+      handleGoHome();
+    }
+  };
 
 
   // Landing AI prompt: route by semantic intent using the LLM classifier.
@@ -415,50 +440,66 @@ export default function App() {
   };
 
   return (
-    <div className="nexus-app-container" data-theme={currentTheme}>
-      {/* Master Header Bar */}
-      <BrowserNavbar
-        tabs={tabs}
-        activeTabId={activeTabId}
-        onSelectTab={handleSelectTab}
-        onAddTab={() => handleAddTab('comex://launchpad')}
-        onCloseTab={handleCloseTab}
-        onNavigate={handleNavigate}
-        onReload={handleReload}
-        onGoHome={handleGoHome}
-        onToggleChat={handleToggleChat}
-        isChatOpen={isChatOpen}
-        unreadCount={unreadCount}
-        currentTheme={currentTheme}
-        onChangeTheme={(theme) => setCurrentTheme(theme)}
-        onOpenShortcuts={() => setIsShortcutsOpen(true)}
+    <div className="sphere-app-root">
+      {/* Sleek Collapsible Left Navigation Sidebar */}
+      <AppSidebar
+        isOpen={isSidebarOpen}
+        activeTab={activeTab}
+        tabCount={tabs.length}
+        activeView={activeSidebarView}
+        onSelectView={handleSelectSidebarView}
+        onOpenSettings={() => setIsShortcutsOpen(true)}
+        onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}
       />
 
-      {/* Bookmarks Bar */}
-      <BookmarksBar onNavigate={handleNavigate} />
-
-      {/* Main Workspace Frame */}
-      <div className="browser-body-layout">
-        <BrowserCanvas
+      {/* Main Browser Area */}
+      <div className="sphere-main-area">
+        {/* Master Header Bar */}
+        <BrowserNavbar
           tabs={tabs}
           activeTabId={activeTabId}
-          activeTab={activeTab}
+          onSelectTab={handleSelectTab}
+          onAddTab={() => handleAddTab('comex://launchpad')}
+          onCloseTab={handleCloseTab}
           onNavigate={handleNavigate}
-          onOpenChat={() => setIsChatOpen(true)}
-          onSubmitLandingPrompt={handleLandingPrompt}
-          onUpdateTabInfo={handleUpdateTabInfo}
-          history={landingHistory}
+          onReload={handleReload}
+          onGoHome={handleGoHome}
+          onToggleChat={handleToggleChat}
           isChatOpen={isChatOpen}
+          unreadCount={unreadCount}
+          currentTheme={currentTheme}
+          onChangeTheme={(theme) => setCurrentTheme(theme)}
+          onOpenShortcuts={() => setIsShortcutsOpen(true)}
+          onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}
+          isSidebarOpen={isSidebarOpen}
         />
 
-        {/* AI Co-Pilot Chat Drawer */}
-        <ChatDrawer
-          isOpen={isChatOpen}
-          onClose={() => setIsChatOpen(false)}
-          activeTab={activeTab}
-          onNavigate={handleNavigate}
-          onAddTab={(url) => handleAddTab(url)}
-        />
+        {/* Bookmarks Bar */}
+        <BookmarksBar onNavigate={handleNavigate} />
+
+        {/* Main Workspace Frame */}
+        <div className="browser-body-layout">
+          <BrowserCanvas
+            tabs={tabs}
+            activeTabId={activeTabId}
+            activeTab={activeTab}
+            onNavigate={handleNavigate}
+            onOpenChat={() => setIsChatOpen(true)}
+            onSubmitLandingPrompt={handleLandingPrompt}
+            onUpdateTabInfo={handleUpdateTabInfo}
+            history={landingHistory}
+            isChatOpen={isChatOpen}
+          />
+
+          {/* AI Co-Pilot Chat Drawer */}
+          <ChatDrawer
+            isOpen={isChatOpen}
+            onClose={() => setIsChatOpen(false)}
+            activeTab={activeTab}
+            onNavigate={handleNavigate}
+            onAddTab={(url) => handleAddTab(url)}
+          />
+        </div>
       </div>
 
       {/* Shortcuts Modal */}

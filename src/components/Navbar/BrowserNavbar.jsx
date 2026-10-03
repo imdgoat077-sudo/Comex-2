@@ -1,13 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import {
-  ArrowLeft, ArrowRight, RotateCw, Home, Lock, Star,
-  Plus, X, Sparkles, Palette, Search, ShieldCheck,
-  HelpCircle, Sliders, ExternalLink, Bookmark, Cpu, Volume2
-} from 'lucide-react';
 import './BrowserNavbar.css';
 
 export default function BrowserNavbar({
-  tabs,
+  tabs = [],
   activeTabId,
   onSelectTab,
   onAddTab,
@@ -17,10 +12,10 @@ export default function BrowserNavbar({
   onGoHome,
   onToggleChat,
   isChatOpen,
-  unreadCount,
-  currentTheme,
-  onChangeTheme,
-  onOpenShortcuts
+  unreadCount = 0,
+  onOpenShortcuts,
+  onToggleSidebar,
+  isSidebarOpen
 }) {
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
   const [urlInput, setUrlInput] = useState(activeTab?.url || '');
@@ -29,29 +24,30 @@ export default function BrowserNavbar({
   const inputRef = useRef(null);
   const dropdownRef = useRef(null);
 
-  // Sync input value when active tab URL changes
   useEffect(() => {
     if (activeTab) {
-      setUrlInput(activeTab.url);
+      setUrlInput(activeTab.url === 'comex://launchpad' || activeTab.url === 'nexus://launchpad' ? '' : activeTab.url);
       setIsBookmarked(activeTab.isBookmarked || false);
     }
   }, [activeTab?.id, activeTab?.url, activeTab?.isBookmarked]);
 
-  const canGoBack = activeTab ? (activeTab.canGoBack || activeTab.historyIndex > 0) : false;
-  const canGoForward = activeTab ? (activeTab.canGoForward || activeTab.historyIndex < activeTab.history.length - 1) : false;
+  const canGoBack = activeTab ? (activeTab.canGoBack || (activeTab.historyIndex > 0)) : false;
+  const canGoForward = activeTab ? (activeTab.canGoForward || (activeTab.historyIndex < (activeTab.history?.length || 1) - 1)) : false;
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!urlInput.trim()) return;
+    const trimmed = urlInput.trim();
+    if (!trimmed) {
+      onGoHome();
+      return;
+    }
 
-    let targetUrl = urlInput.trim();
-    // Check if input is a valid URL format or search query
-    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://') && !targetUrl.startsWith('nexus://')) {
+    let targetUrl = trimmed;
+    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://') && !targetUrl.startsWith('comex://') && !targetUrl.startsWith('nexus://')) {
       if (targetUrl.includes('.') && !targetUrl.includes(' ')) {
         targetUrl = 'https://' + targetUrl;
       } else {
-        // Search query -> redirect to Google simulator
-        targetUrl = `https://google.com/search?q=${encodeURIComponent(targetUrl)}`;
+        targetUrl = `https://www.google.com/search?q=${encodeURIComponent(targetUrl)}`;
       }
     }
 
@@ -66,152 +62,163 @@ export default function BrowserNavbar({
     setIsFocused(false);
   };
 
-  const toggleBookmark = () => {
+  const toggleBookmark = (e) => {
+    e.stopPropagation();
     setIsBookmarked(!isBookmarked);
   };
 
-  const isElectron = typeof window !== 'undefined' && window.nexusNative?.isElectron;
+  const isSecure = activeTab?.url?.startsWith('https://');
 
   return (
     <header className="browser-header">
-      {/* Top Window Bar: Traffic Lights + Tabs */}
-      <div className="browser-topbar">
-        {/* macOS Window Controls */}
-        {isElectron ? (
-          <div className="electron-traffic-spacer" />
-        ) : (
-          <div className="window-controls">
-            <span className="control-btn control-close" title="Close Window"></span>
-            <span className="control-btn control-minimize" title="Minimize"></span>
-            <span className="control-btn control-maximize" title="Expand"></span>
-          </div>
-        )}
+      {/* ── Top Row: Traffic light spacer + Tabs + Badge + Assistant launcher ── */}
+      <div className="drag-region browser-topbar">
+        <div className="no-drag topbar-left-group">
+          {/* Spacer for macOS traffic lights */}
+          <div className="traffic-light-spacer" />
 
-        {/* Multi-Tab Container */}
-        <div className="tabs-container">
-          {tabs.map((tab) => {
-            const isActive = tab.id === activeTabId;
-            return (
-              <div
-                key={tab.id}
-                className={`browser-tab ${isActive ? 'active' : ''}`}
-                onClick={() => onSelectTab(tab.id)}
-                title={tab.url}
-              >
-                <div className="tab-favicon">
-                  {tab.isLoading ? (
-                    <RotateCw className="tab-spinner animate-spin" size={13} />
-                  ) : tab.favicon ? (
-                    <img src={tab.favicon} alt="" className="tab-favicon-img" onError={(e) => { e.target.style.display = 'none'; }} />
-                  ) : (
-                    <span className="tab-dot"></span>
+          {/* Tab Strip */}
+          <div className="tabs-container" id="tab-strip">
+            {tabs.map((tab) => {
+              const isActive = tab.id === activeTabId;
+              const isHome = !tab.url || tab.url === 'comex://launchpad' || tab.url === 'nexus://launchpad';
+
+              return (
+                <div
+                  key={tab.id}
+                  className={`tab-item ${isActive ? 'active' : ''}`}
+                  onClick={() => onSelectTab(tab.id)}
+                  title={tab.url || 'New Tab'}
+                >
+                  <div className="tab-favicon">
+                    {tab.isLoading ? (
+                      <div className="tab-spinner" />
+                    ) : tab.favicon ? (
+                      <img
+                        src={tab.favicon}
+                        alt=""
+                        className="tab-favicon-img"
+                        onError={(e) => { e.target.style.display = 'none'; }}
+                      />
+                    ) : (
+                      <span className="material-symbols-outlined text-[15px] text-on-surface-variant">
+                        {isHome ? 'home' : 'language'}
+                      </span>
+                    )}
+                  </div>
+
+                  <span className="tab-title">
+                    {isHome ? 'New Tab' : (tab.title || tab.url || 'Loading…')}
+                  </span>
+
+                  {tabs.length > 1 && (
+                    <button
+                      className="tab-close"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCloseTab(tab.id);
+                      }}
+                      title="Close tab (Cmd+W)"
+                    >
+                      <span className="material-symbols-outlined text-[13px]">close</span>
+                    </button>
                   )}
                 </div>
-                <span className="tab-title">{tab.title || 'New Tab'}</span>
-                {tab.isAudible && (
-                  <span className="tab-audio-indicator" title="Audio playing on this tab">
-                    <Volume2 size={13} className="tab-audio-icon active animate-pulse" />
-                  </span>
-                )}
-                {tabs.length > 1 && (
-                  <button
-                    className="tab-close-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onCloseTab(tab.id);
-                    }}
-                    title="Close tab (Cmd+W)"
-                  >
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
-            );
-          })}
+              );
+            })}
 
-          {/* New Tab Button */}
-          <button 
-            className="add-tab-btn" 
-            onClick={onAddTab}
-            title="New Tab (Cmd+T)"
-          >
-            <Plus size={16} />
-          </button>
+            {/* New Tab Button */}
+            <button
+              className="add-tab-btn"
+              onClick={onAddTab}
+              title="New tab (Cmd+T)"
+            >
+              <span className="material-symbols-outlined text-[16px]">add</span>
+            </button>
+          </div>
         </div>
 
-        {/* Right Utility Buttons */}
-        <div className="topbar-actions">
-          <button 
-            className="utility-btn" 
-            onClick={onOpenShortcuts}
-            title="Keyboard Shortcuts"
+        {/* Right Status & Assistant Button */}
+        <div className="no-drag topbar-right-group">
+          <div className="engine-badge">
+            <span className="material-symbols-outlined text-[14px]">memory</span>
+            <span>Comex v2.4</span>
+          </div>
+
+          <button
+            className={`assistant-topbar-btn ${isChatOpen ? 'active' : ''}`}
+            onClick={onToggleChat}
+            title="Toggle AI Co-Pilot (Cmd+J)"
           >
-            <HelpCircle size={15} />
-          </button>
-          
-          <button 
-            className="utility-btn" 
-            onClick={() => {
-              const themes = ['dark', 'aurora', 'cyberpunk', 'minimal'];
-              const nextIdx = (themes.indexOf(currentTheme) + 1) % themes.length;
-              onChangeTheme(themes[nextIdx]);
-            }}
-            title={`Theme: ${currentTheme}`}
-          >
-            <Palette size={15} />
+            <span className="material-symbols-outlined text-[16px]">auto_awesome</span>
+            <span>Assistant</span>
+            {unreadCount > 0 && <span className="unread-badge">{unreadCount}</span>}
           </button>
         </div>
       </div>
 
-      {/* Main Address & Navigation Toolbar */}
-      <div className="browser-toolbar">
-        {/* Navigation Buttons */}
-        <div className="nav-group">
-          <button 
-            className={`nav-btn ${!canGoBack ? 'disabled' : ''}`}
+      {/* ── Bottom Row: Navigation Buttons + Pill Omnibar + Action buttons ── */}
+      <div className="no-drag browser-toolbar">
+        {/* Nav Controls */}
+        <div className="nav-buttons-group">
+          {onToggleSidebar && (
+            <button
+              className="nav-action-btn"
+              onClick={onToggleSidebar}
+              title={isSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+            >
+              <span className="material-symbols-outlined text-[18px]">
+                {isSidebarOpen ? 'dock_to_left' : 'menu'}
+              </span>
+            </button>
+          )}
+
+          <button
+            className="nav-action-btn"
             disabled={!canGoBack}
             onClick={() => onNavigate('BACK')}
-            title="Back"
+            title="Back (Cmd+[)"
           >
-            <ArrowLeft size={16} />
-          </button>
-          
-          <button 
-            className={`nav-btn ${!canGoForward ? 'disabled' : ''}`}
-            disabled={!canGoForward}
-            onClick={() => onNavigate('FORWARD')}
-            title="Forward"
-          >
-            <ArrowRight size={16} />
-          </button>
-
-          <button 
-            className="nav-btn"
-            onClick={onReload}
-            title="Reload page (Cmd+R)"
-          >
-            <RotateCw className={activeTab?.isLoading ? 'animate-spin' : ''} size={15} />
+            <span className="material-symbols-outlined text-[18px]">arrow_back</span>
           </button>
 
           <button
-            className="nav-btn"
-            onClick={onGoHome}
-            title="Comex Launchpad Home"
+            className="nav-action-btn"
+            disabled={!canGoForward}
+            onClick={() => onNavigate('FORWARD')}
+            title="Forward (Cmd+])"
           >
-            <Home size={15} />
+            <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+          </button>
+
+          <button
+            className="nav-action-btn"
+            onClick={onReload}
+            title="Reload (Cmd+R)"
+          >
+            <span className={`material-symbols-outlined text-[18px] ${activeTab?.isLoading ? 'animate-spin' : ''}`}>
+              refresh
+            </span>
+          </button>
+
+          <button
+            className="nav-action-btn"
+            onClick={onGoHome}
+            title="Launchpad Home"
+          >
+            <span className="material-symbols-outlined text-[18px]">home</span>
           </button>
         </div>
 
-        {/* Omnibox / Address Bar Form */}
-        <div className={`omnibox-container ${isFocused ? 'focused' : ''}`}>
+        {/* Pill URL Omnibar */}
+        <div
+          className={`omnibox-wrapper ${isFocused ? 'focused' : ''}`}
+          onClick={() => inputRef.current?.focus()}
+        >
           <form onSubmit={handleSubmit} className="omnibox-form">
-            <div className="security-badge" title="Encrypted Connection (HTTPS)">
-              {activeTab?.url?.startsWith('https://') || activeTab?.url?.startsWith('comex://') || activeTab?.url?.startsWith('nexus://') ? (
-                <Lock size={13} className="lock-icon secure" />
-              ) : (
-                <ShieldCheck size={13} className="lock-icon" />
-              )}
-            </div>
+            <span className={`material-symbols-outlined omnibox-icon ${isSecure ? 'secure' : ''}`}>
+              {isSecure ? 'lock' : 'search'}
+            </span>
 
             <input
               ref={inputRef}
@@ -220,72 +227,94 @@ export default function BrowserNavbar({
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               onFocus={() => setIsFocused(true)}
-              onBlur={() => setTimeout(() => setIsFocused(false), 200)}
-              placeholder="Search Google or enter web address..."
+              onBlur={() => setTimeout(() => setIsFocused(false), 220)}
+              placeholder="Search or enter address..."
+              spellCheck="false"
+              autoComplete="off"
             />
 
-            <button 
-              type="button" 
-              className={`bookmark-btn ${isBookmarked ? 'active' : ''}`}
-              onClick={toggleBookmark}
-              title={isBookmarked ? "Remove Bookmark" : "Bookmark this page"}
-            >
-              <Star size={14} fill={isBookmarked ? "#f59e0b" : "none"} />
-            </button>
+            <div className="omnibox-actions">
+              <button
+                type="button"
+                className={`bookmark-star-btn ${isBookmarked ? 'bookmarked' : ''}`}
+                onClick={toggleBookmark}
+                title={isBookmarked ? 'Bookmarked' : 'Bookmark this page'}
+              >
+                <span className="material-symbols-outlined text-[18px]">
+                  {isBookmarked ? 'star' : 'star_outline'}
+                </span>
+              </button>
+            </div>
           </form>
 
-          {/* Autocomplete & Quick Suggestion Dropdown */}
+          {/* Quick Suggestions Dropdown */}
           {isFocused && (
             <div className="search-dropdown animate-fade-in" ref={dropdownRef}>
-              <div className="dropdown-section-header">
-                <span>Quick Navigations & Search</span>
-              </div>
-              <div 
-                className="dropdown-item" 
-                onClick={() => handleQuickSuggestion('https://google.com')}
+              <div className="dropdown-section-header">Quick Navigations</div>
+              
+              <div
+                className="dropdown-item"
+                onMouseDown={() => handleQuickSuggestion('https://google.com')}
               >
-                <Search size={14} className="item-icon" />
-                <span className="item-title">Google Search</span>
-                <span className="item-url">google.com</span>
+                <div className="dropdown-icon-tile">
+                  <span className="material-symbols-outlined">search</span>
+                </div>
+                <div className="dropdown-info">
+                  <span className="dropdown-item-title">Google Search</span>
+                  <span className="dropdown-item-sub">google.com</span>
+                </div>
               </div>
-              <div 
-                className="dropdown-item" 
-                onClick={() => handleQuickSuggestion('https://github.com')}
+
+              <div
+                className="dropdown-item"
+                onMouseDown={() => handleQuickSuggestion('https://github.com')}
               >
-                <Cpu size={14} className="item-icon" />
-                <span className="item-title">GitHub Developer Portal</span>
-                <span className="item-url">github.com</span>
+                <div className="dropdown-icon-tile">
+                  <span className="material-symbols-outlined">terminal</span>
+                </div>
+                <div className="dropdown-info">
+                  <span className="dropdown-item-title">GitHub Developer Portal</span>
+                  <span className="dropdown-item-sub">github.com</span>
+                </div>
               </div>
-              <div 
-                className="dropdown-item" 
-                onClick={() => handleQuickSuggestion('https://wikipedia.org')}
+
+              <div
+                className="dropdown-item"
+                onMouseDown={() => handleQuickSuggestion('https://news.ycombinator.com')}
               >
-                <Bookmark size={14} className="item-icon" />
-                <span className="item-title">Wikipedia Encyclopedia</span>
-                <span className="item-url">wikipedia.org</span>
+                <div className="dropdown-icon-tile">
+                  <span className="material-symbols-outlined">newspaper</span>
+                </div>
+                <div className="dropdown-info">
+                  <span className="dropdown-item-title">Hacker News</span>
+                  <span className="dropdown-item-sub">news.ycombinator.com</span>
+                </div>
               </div>
-              <div 
-                className="dropdown-item" 
-                onClick={() => handleQuickSuggestion('https://news.ycombinator.com')}
+
+              <div
+                className="dropdown-item"
+                onMouseDown={() => handleQuickSuggestion('https://wikipedia.org')}
               >
-                <ExternalLink size={14} className="item-icon" />
-                <span className="item-title">Hacker News Tech Stories</span>
-                <span className="item-url">news.ycombinator.com</span>
+                <div className="dropdown-icon-tile">
+                  <span className="material-symbols-outlined">book</span>
+                </div>
+                <div className="dropdown-info">
+                  <span className="dropdown-item-title">Wikipedia</span>
+                  <span className="dropdown-item-sub">wikipedia.org</span>
+                </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* AI Co-Pilot / Chat Toggle Button */}
-        <div className="chat-toggle-wrapper">
+        {/* Right utility buttons */}
+        <div className="toolbar-utilities">
           <button
-            className={`chat-toggle-btn ${isChatOpen ? 'active' : ''}`}
-            onClick={onToggleChat}
-            title="Toggle Comex AI Assistant"
+            className="nav-action-btn"
+            onClick={onOpenShortcuts}
+            title="Keyboard Shortcuts & Help"
           >
-            <Sparkles size={16} className="sparkle-icon" />
-            <span className="chat-btn-label">Comex AI Assistant</span>
-            {unreadCount > 0 && <span className="unread-dot">{unreadCount}</span>}
+            <span className="material-symbols-outlined text-[18px]">keyboard</span>
           </button>
         </div>
       </div>

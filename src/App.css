@@ -1,17 +1,26 @@
-.nexus-app-container {
+.sphere-app-root {
   display: flex;
-  flex-direction: column;
   height: 100vh;
   width: 100vw;
   overflow: hidden;
-  background-color: var(--bg-dark);
-  color: var(--text-main);
+  background-color: var(--surface);
+  color: var(--on-surface);
   position: relative;
+}
+
+.sphere-main-area {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .browser-body-layout {
   display: flex;
   flex: 1;
+  min-height: 0;
   position: relative;
   overflow: hidden;
 }
@@ -19,6 +28,8 @@
 .browser-canvas-area {
   flex: 1;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
   position: relative;
   overflow: hidden;
   display: flex;

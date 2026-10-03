@@ -1,17 +1,18 @@
 .bookmarks-bar {
   display: flex;
   align-items: center;
-  height: 32px;
-  padding: 0 14px;
-  background: rgba(14, 17, 23, 0.6);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  height: 30px;
+  padding: 0 18px;
+  background: var(--surface-container-low);
+  border-bottom: 1px solid var(--surface-container-high);
   user-select: none;
+  flex-shrink: 0;
 }
 
 .bookmarks-scroll {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -24,21 +25,21 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 10px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: var(--radius-full);
-  color: var(--text-muted);
-  font-size: 0.78rem;
+  padding: 2px 10px;
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--surface-container-high);
+  border-radius: 9999px;
+  color: var(--on-surface-variant);
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
-  transition: var(--transition-fast);
+  box-shadow: 0 1px 2px rgba(31, 36, 33, 0.04);
+  transition: background var(--dur-fast) var(--ease-smooth), color var(--dur-fast) var(--ease-smooth), transform var(--dur-fast) var(--ease-smooth);
 }
 
 .bookmark-chip:hover {
-  background: rgba(255, 255, 255, 0.09);
-  color: var(--text-main);
-  border-color: rgba(255, 255, 255, 0.15);
+  background: var(--surface-container);
+  color: var(--on-surface);
   transform: translateY(-1px);
 }

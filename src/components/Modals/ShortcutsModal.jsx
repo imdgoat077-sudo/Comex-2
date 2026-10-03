@@ -9,6 +9,7 @@ export default function ShortcutsModal({ isOpen, onClose }) {
     { key: 'Cmd + T / Ctrl + T', desc: 'Open New Tab', icon: Plus },
     { key: 'Cmd + W / Ctrl + W', desc: 'Close Active Tab', icon: X },
     { key: 'Cmd + R / Ctrl + R', desc: 'Reload Active Tab', icon: RotateCw },
+    { key: 'Cmd + B / Ctrl + B', desc: 'Toggle Left Sidebar', icon: Command },
     { key: 'Cmd + J / Ctrl + J', desc: 'Toggle AI Assistant Chat', icon: Sparkles },
     { key: 'Cmd + L / Ctrl + L', desc: 'Focus Address Bar', icon: Search }
   ];

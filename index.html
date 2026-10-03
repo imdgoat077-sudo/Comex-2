@@ -9,6 +9,88 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              'surface': '#f6fbf5',
+              'surface-bright': '#f6fbf5',
+              'surface-dim': '#d7dbd6',
+              'surface-container-lowest': '#ffffff',
+              'surface-container-low': '#f0f5f0',
+              'surface-container': '#ebefea',
+              'surface-container-high': '#e5e9e4',
+              'surface-container-highest': '#dfe4df',
+              'on-surface': '#181d1a',
+              'on-surface-variant': '#404848',
+              'outline': '#707979',
+              'outline-variant': '#c0c8c8',
+              'primary': '#003638',
+              'on-primary': '#ffffff',
+              'primary-container': '#1c4d4f',
+              'on-primary-container': '#8dbdbf',
+              'primary-fixed': '#bbebed',
+              'primary-fixed-dim': '#9fcfd1',
+              'on-primary-fixed': '#002021',
+              'on-primary-fixed-variant': '#1d4e50',
+              'inverse-primary': '#9fcfd1',
+              'secondary': '#9e4229',
+              'on-secondary': '#ffffff',
+              'secondary-container': '#fe8b6d',
+              'on-secondary-container': '#75240e',
+              'secondary-fixed': '#ffdbd2',
+              'secondary-fixed-dim': '#ffb4a1',
+              'on-secondary-fixed': '#3c0800',
+              'on-secondary-fixed-variant': '#7e2b14',
+              'tertiary': '#412a23',
+              'on-tertiary': '#ffffff',
+              'tertiary-container': '#594038',
+              'on-tertiary-container': '#cfaca2',
+              'tertiary-fixed': '#ffdbd0',
+              'tertiary-fixed-dim': '#e3bfb4',
+              'on-tertiary-fixed': '#2a1710',
+              'on-tertiary-fixed-variant': '#5a4139',
+              'error': '#ba1a1a',
+              'on-error': '#ffffff',
+              'error-container': '#ffdad6',
+              'on-error-container': '#93000a',
+              'background': '#f6fbf5',
+              'on-background': '#181d1a',
+              'surface-variant': '#dfe4df',
+              'inverse-surface': '#2c322e',
+              'inverse-on-surface': '#edf2ed',
+              'surface-tint': '#376668',
+            },
+            borderRadius: {
+              DEFAULT: '0.25rem', lg: '0.5rem', xl: '0.75rem', '2xl': '1rem', full: '9999px'
+            },
+            spacing: {
+              'space-xs': '0.25rem', 'space-sm': '0.5rem', 'space-md': '0.75rem',
+              'space-lg': '1.25rem', 'space-xl': '1.75rem', 'gutter': '1rem', 'margin': '1.25rem'
+            },
+            fontFamily: {
+              sans: ['Plus Jakarta Sans', 'sans-serif']
+            },
+            fontSize: {
+              'headline-lg': ['24px', { lineHeight: '32px', letterSpacing: '-0.015em', fontWeight: '600' }],
+              'headline-md': ['20px', { lineHeight: '28px', letterSpacing: '-0.01em', fontWeight: '600' }],
+              'headline-sm': ['16px', { lineHeight: '24px', fontWeight: '600' }],
+              'body-lg': ['17px', { lineHeight: '26px', fontWeight: '400' }],
+              'body-md': ['15px', { lineHeight: '22px', fontWeight: '400' }],
+              'body-sm': ['13px', { lineHeight: '18px', fontWeight: '400' }],
+              'label-lg': ['14px', { lineHeight: '20px', fontWeight: '500' }],
+              'label-md': ['12px', { lineHeight: '16px', fontWeight: '500' }],
+              'label-sm': ['11px', { lineHeight: '14px', letterSpacing: '0.02em', fontWeight: '600' }],
+              'display': ['36px', { lineHeight: '44px', letterSpacing: '-0.02em', fontWeight: '600' }],
+            }
+          }
+        }
+      };
+    </script>
   </head>
   <body>
     <div id="root"></div>

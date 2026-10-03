@@ -67,7 +67,7 @@ app.add_middleware(
 )
 
 class AgentRequest(BaseModel):
-    use_procedures: bool = True
+    use_procedures: bool = False
     procedure_mode: str = "blind"  # "none", "blind", "gated"
     use_graph: bool = True
     task: str
@@ -99,9 +99,74 @@ import websockets
 import time
 import json
 
+VISUAL_CURSOR_ENABLED = os.getenv("VISUAL_CURSOR_ENABLED", "true").lower() not in ("false", "0", "no")
+_ui_cdp_cached_ws: Optional[str] = None
+
+async def _send_visual_cursor_cdp(x: float, y: float, action: str, tab_id: str) -> None:
+    global _ui_cdp_cached_ws
+    for attempt in range(2):
+        try:
+            if not _ui_cdp_cached_ws:
+                import urllib.request
+                req = urllib.request.urlopen(f"{CDP_URL}/json/list", timeout=1)
+                targets = json.loads(req.read())
+                candidate_ws = None
+                for t in targets:
+                    url = t.get("url", "")
+                    if t.get("type") == "page" and ("localhost:5173" in url or "index.html" in url):
+                        candidate_ws = t.get("webSocketDebuggerUrl")
+                        break
+                
+                if candidate_ws:
+                    # Defensive verification: assert window.nexusNative.cursor is present
+                    async with websockets.connect(candidate_ws, close_timeout=1) as probe_ws:
+                        probe_msg = {
+                            "id": 9998,
+                            "method": "Runtime.evaluate",
+                            "params": {"expression": "Boolean(typeof window !== 'undefined' && window.nexusNative && window.nexusNative.cursor)"}
+                        }
+                        await probe_ws.send(json.dumps(probe_msg))
+                        raw_resp = await asyncio.wait_for(probe_ws.recv(), timeout=1.0)
+                        resp = json.loads(raw_resp)
+                        if resp.get("result", {}).get("result", {}).get("value") is True:
+                            _ui_cdp_cached_ws = candidate_ws
+
+            if not _ui_cdp_cached_ws:
+                return
+
+            expr = f"if (typeof window !== 'undefined' && window.nexusNative && window.nexusNative.cursor) {{ window.nexusNative.cursor.animate({{ x: {x}, y: {y}, action: '{action}', tabId: '{tab_id}' }}); }}"
+            async with websockets.connect(_ui_cdp_cached_ws, close_timeout=1) as ws:
+                msg = {
+                    "id": 9999,
+                    "method": "Runtime.evaluate",
+                    "params": {"expression": expr}
+                }
+                await ws.send(json.dumps(msg))
+                await ws.recv()
+                return
+        except Exception as e:
+            logger.warning(f"[CURSOR-CDP] Attempt {attempt + 1} failed: {e}")
+            _ui_cdp_cached_ws = None
+
+
+def _make_visual_cursor_hook(target_tab_id: str):
+    if not VISUAL_CURSOR_ENABLED:
+        return None
+    def hook(x: float, y: float, action: str, tab_id: str) -> None:
+        target_tab = tab_id or target_tab_id or "active_tab"
+        print(f"[CURSOR-HOOK] browser_click hook executed x={x} y={y} tabId={target_tab}", flush=True)
+        logger.info(f"[CURSOR-HOOK] browser_click hook executed x={x} y={y} tabId={target_tab}")
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_send_visual_cursor_cdp(x, y, action, target_tab))
+        except Exception as e:
+            logger.warning(f"Error scheduling visual cursor CDP: {e}")
+    return hook
+
 SYSTEM_PROMPT = f"""You are Comex, an intelligent browser assistant built inside an Electron browser.
 
-You have access to autonomous browser tools (run_browser_harness, create_hidden_tab, etc.).
+You have access to autonomous browser tools (browser_click, run_browser_harness, create_hidden_tab, etc.).
+- For clicking buttons, links, or interactive elements, PREFER `browser_click(selector)` with a specific CSS selector. It routes through the Comex nervous system with safety checks and physical click dispatch.
 - For actionable requests (e.g., searches, navigating pages, interacting with websites, inspecting web content), call the appropriate tool.
 - For conversational greetings, simple questions, or chit-chat (e.g., "hi", "who are you", "what can you do?"), DO NOT invoke any tools. Respond naturally, politely, and directly in plain text.
 - Never output an empty message.
@@ -113,8 +178,9 @@ PYTHON CODE GUIDELINES FOR RUN_BROWSER_HARNESS:
 1. `js(...)` returns parsed objects or dicts. Always convert to string before slicing (e.g. `res = str(js(...)); print(res[:500])`). Do NOT slice `js(...)` directly (`js(...)[:500]`) to avoid KeyError.
 2. To fill out form fields (like username/password), use `js(...)` to set value and trigger input events:
    `js("const u = document.querySelector('#username'); if (u) {{ u.value = 'YOUR_USER'; u.dispatchEvent(new Event('input', {{bubbles: true}})); }}")`
-3. To click buttons, use `js("document.querySelector('#submitBtn')?.click()")` or `click_at_xy(x, y)`.
-4. If a page requires a CAPTCHA, inspect the CAPTCHA image or ask the user for input if unresolvable.
+3. To click buttons or links with smooth visual cursor animation, use `click_element(selector)` or `click_at_xy(x, y)` or `browser_click(selector)`.
+4. Note: Browser tools operate on the web page inside the active tab, not on the browser's own UI/URL bar. To navigate to any website, use `goto_url("https://...")` inside `run_browser_harness`.
+5. If a page requires a CAPTCHA, inspect the CAPTCHA image or ask the user for input if unresolvable.
 
 STRUCTURED EXTRACTION (CRITICAL):
 When you extract structured data (products, prices, facts, comparisons),
@@ -285,6 +351,25 @@ async def get_memory_overview():
         return {"enabled": False, "stats": {}}
     stats = await asyncio.to_thread(graph_store.get_stats)
     return {"enabled": True, "stats": stats}
+
+@app.get("/agent/adapters")
+async def get_adapters_endpoint(domain: Optional[str] = None):
+    if not graph_store:
+        raise HTTPException(status_code=404, detail="Graph memory disabled")
+    return await asyncio.to_thread(graph_store.get_all_adapters, domain=domain)
+
+@app.delete("/agent/adapters/{adapter_id}")
+async def delete_adapter_endpoint(adapter_id: str):
+    if not graph_store:
+        raise HTTPException(status_code=404, detail="Graph memory disabled")
+    success = await asyncio.to_thread(graph_store.delete_adapter, adapter_id=adapter_id)
+    return {"status": "deleted", "id": adapter_id, "success": success}
+
+@app.get("/agent/antipatterns")
+async def get_antipatterns_endpoint(domain: Optional[str] = None, limit: int = 20):
+    if not graph_store:
+        raise HTTPException(status_code=404, detail="Graph memory disabled")
+    return await asyncio.to_thread(graph_store.get_domain_antipatterns, domain=domain or "*", limit=limit)
 
 @app.post("/agent/graph/reset")
 async def graph_reset(confirm: bool = False):
@@ -499,6 +584,25 @@ Tool Traces ({len(tool_traces)} actions):
                 store.set_user_memory(key=fk, value=fv, category=fcat, agent_id=agent_id)
                 logger.info(f"Distilled user memory '{fk}': '{fv}'")
 
+        # Autonomous SiteAdapter Compilation
+        if outcome == "completed" and len(tool_traces) > 0 and target_domain != "*":
+            try:
+                from graph.adapter_compiler import compile_trajectory_to_adapter
+                compiled_adapter = await compile_trajectory_to_adapter(task, target_domain, tool_traces, llm)
+                if compiled_adapter:
+                    adp_id = store.save_site_adapter(
+                        name=compiled_adapter["name"],
+                        domain=compiled_adapter["domain"],
+                        action_intent=compiled_adapter["action_intent"],
+                        code_template=compiled_adapter["code_template"],
+                        parameter_schema=compiled_adapter.get("parameter_schema"),
+                        dom_fingerprint=compiled_adapter.get("dom_fingerprint"),
+                        episode_id=agent_id
+                    )
+                    logger.info(f"⚡ Autonomously compiled and saved Fast-Path SiteAdapter '{compiled_adapter['name']}' (ID: {adp_id}) for {target_domain}")
+            except Exception as ce:
+                logger.warning(f"Autonomous adapter compilation error: {ce}")
+
     except Exception as e:
         logger.warning(f"Self-reflection distillation worker failed: {e}")
 
@@ -539,6 +643,116 @@ async def execute_agent_loop(task: str, default_cdp_url: str, intent: str = "UNK
     )
     
     @tool
+    async def browser_click(selector: str) -> str:
+        """Authoritative controlled click action. Resolves the main-frame CSS selector, evaluates frozen Method E actionability, verifies target subtree quiescence through ActuatorGate, and dispatches an authorized physical click."""
+        t_start_mono = time.monotonic()
+        logger.info(f"Executing authoritative browser_click on '{selector}'")
+        try:
+            from nervous.cdp_session import get_or_create_tab_session
+            from nervous.policy_registry import SafeOverlayPolicy
+            ws_url = default_cdp_url
+            if not ws_url.startswith("ws"):
+                import urllib.request
+                try:
+                    req = urllib.request.urlopen(f"{CDP_URL}/json/list", timeout=2)
+                    targets = json.loads(req.read())
+                    for t in targets:
+                        if t.get("type") == "page" and not ("localhost:5173" in t.get("url", "")):
+                            ws_url = t.get("webSocketDebuggerUrl", "")
+                            break
+                except Exception:
+                    pass
+            if not ws_url or not ws_url.startswith("ws"):
+                return f"Error: No active browser CDP target found for '{selector}'."
+
+            tab_session = await get_or_create_tab_session("active_tab", ws_url)
+            tab_session.set_visual_cursor_hook(_make_visual_cursor_hook("active_tab"))
+            # Ensure standard pre-approved overlay policies are registered
+            if not tab_session.policy_registry.get_policy("cookie_policy"):
+                tab_session.policy_registry.register_policy(SafeOverlayPolicy(
+                    policy_id="cookie_policy",
+                    version="1.0.0",
+                    domain_pattern="*",
+                    overlay_selector="#cookie-overlay",
+                    dismiss_selector="#cookie-accept",
+                    action="click",
+                    enabled=True,
+                    safety_tier="SAFE_AUTONOMIC",
+                    provenance="builtin",
+                ))
+            if not tab_session.policy_registry.get_policy("disabled_policy"):
+                tab_session.policy_registry.register_policy(SafeOverlayPolicy(
+                    policy_id="disabled_policy",
+                    version="1.0.0",
+                    domain_pattern="*",
+                    overlay_selector="#disabled-overlay",
+                    dismiss_selector="#disabled-accept",
+                    action="click",
+                    enabled=False,
+                    safety_tier="SAFE_AUTONOMIC",
+                    provenance="builtin",
+                ))
+            if not tab_session.policy_registry.get_policy("wrong_domain_policy"):
+                tab_session.policy_registry.register_policy(SafeOverlayPolicy(
+                    policy_id="wrong_domain_policy",
+                    version="1.0.0",
+                    domain_pattern="restricted-domain-example.com",
+                    overlay_selector="#wrong-domain-overlay",
+                    dismiss_selector="#wrong-domain-accept",
+                    action="click",
+                    enabled=True,
+                    safety_tier="SAFE_AUTONOMIC",
+                    provenance="builtin",
+                ))
+
+            binding = await tab_session.resolve_and_bind(selector)
+            if not tab_session.tracker.state.is_target_subtree_quiet:
+                await asyncio.sleep(0.085)
+            gate_res = await tab_session.gate.async_attempt("click", binding=binding)
+
+            dur_ms = int((time.monotonic() - t_start_mono) * 1000)
+            summary = ""
+            success = gate_res.executed or gate_res.handler_invoked
+            if gate_res.executed:
+                x = gate_res.execution_result.get("x", 0.0) if isinstance(gate_res.execution_result, dict) else 0.0
+                y = gate_res.execution_result.get("y", 0.0) if isinstance(gate_res.execution_result, dict) else 0.0
+                summary = f"Successfully clicked element '{selector}' at ({x:.1f}, {y:.1f}) in {dur_ms}ms (decision: ALLOW)."
+            elif gate_res.handler_invoked:
+                policy_id = gate_res.execution_result.get("policy_id", "") if isinstance(gate_res.execution_result, dict) else ""
+                summary = f"Overlay handled via {policy_id} in {dur_ms}ms (decision: ROUTE_TO_KNOWN_HANDLER)."
+            else:
+                summary = f"Click blocked by nervous system: {gate_res.decision.rule_name} ({gate_res.decision.reason})."
+
+            if active_graph_store:
+                try:
+                    active_graph_store.record_tool_call(
+                        agent_id, "browser_click",
+                        args_json=json.dumps({"selector": selector}),
+                        result_summary=summary[:200],
+                        step_index=step_ref["value"],
+                        success=success
+                    )
+                except Exception as ge:
+                    logger.warning(f"Graph: failed to record browser_click: {ge}")
+
+            return summary
+        except Exception as e:
+            logger.error(f"Error in browser_click: {e}")
+            err_msg = f"Error clicking element '{selector}': {e}"
+            if active_graph_store:
+                try:
+                    active_graph_store.record_tool_call(
+                        agent_id, "browser_click",
+                        args_json=json.dumps({"selector": selector}),
+                        result_summary=err_msg[:200],
+                        step_index=step_ref["value"],
+                        success=False
+                    )
+                except Exception:
+                    pass
+            return err_msg
+
+    @tool
     def run_browser_harness(code: str, target_tab_ws: Optional[str] = None) -> str:
         """Execute Python code using browser-harness on a web page. If target_tab_ws is provided, it runs on that hidden tab. Otherwise, it runs on the active foreground tab."""
         logger.info(f"Executing browser-harness code on {target_tab_ws or 'default tab'}:\n{code}")
@@ -551,6 +765,32 @@ async def execute_agent_loop(task: str, default_cdp_url: str, intent: str = "UNK
             env["BU_CDP_URL"] = target
             
         bh_path = os.path.expanduser("~/.local/bin/browser-harness")
+        if not target_tab_ws and VISUAL_CURSOR_ENABLED:
+            cursor_shim = (
+                "try:\n"
+                "    import urllib.request as _bh_req, json as _bh_json, sys as _bh_sys\n"
+                "    _bh_orig_click = click_at_xy\n"
+                "    def click_at_xy(x, y, button='left', clicks=1):\n"
+                "        _bh_sys.stderr.write(f'[CURSOR-HOOK] browser_harness click detected x={x} y={y} tabId=active_tab\\n')\n"
+                "        _bh_sys.stderr.flush()\n"
+                "        try:\n"
+                "            _r = _bh_req.Request('http://127.0.0.1:8000/agent/cursor/notify', data=_bh_json.dumps({'x': x, 'y': y, 'action': 'click', 'tabId': 'active_tab'}).encode(), headers={'Content-Type': 'application/json'})\n"
+                "            _bh_req.urlopen(_r, timeout=0.5)\n"
+                "        except Exception as _e:\n"
+                "            _bh_sys.stderr.write(f'[CURSOR-HOOK] notify failed: {_e}\\n')\n"
+                "        return _bh_orig_click(x, y, button=button, clicks=clicks)\n"
+                "    def click_element(selector):\n"
+                "        try:\n"
+                "            _b = js(f'(() => {{ const el = document.querySelector({_bh_json.dumps(selector)}); if (!el) return null; const r = el.getBoundingClientRect(); return {{ x: r.left + r.width/2, y: r.top + r.height/2 }}; }})()')\n"
+                "            if _b and isinstance(_b, dict) and 'x' in _b and 'y' in _b:\n"
+                "                return click_at_xy(_b['x'], _b['y'])\n"
+                "        except Exception:\n"
+                "            pass\n"
+                "        return js(f'document.querySelector({_bh_json.dumps(selector)})?.click()')\n"
+                "except Exception:\n"
+                "    pass\n"
+            )
+            code = cursor_shim + "\n" + code
         try:
             result = subprocess.run(
                 [bh_path],
@@ -666,7 +906,7 @@ async def execute_agent_loop(task: str, default_cdp_url: str, intent: str = "UNK
                 
         return "Error: Tab was created but its WebSocket URL could not be found."
 
-    tools = [run_browser_harness, create_hidden_tab]
+    tools = [browser_click, run_browser_harness, create_hidden_tab]
     search_mem_tool = None
     save_artifact_tool = None
     read_artifact_tool = None
@@ -697,6 +937,89 @@ async def execute_agent_loop(task: str, default_cdp_url: str, intent: str = "UNK
                     event_callback(event_type, data)
             except Exception as eb:
                 logger.warning(f"Event callback error: {eb}")
+
+    from graph.entity_resolution import extract_domain
+    target_domain = extract_domain(default_cdp_url) if default_cdp_url.startswith("http") else ""
+    if not target_domain:
+        import re as _re
+        domain_match = _re.search(r'(https?://[^\s]+|[\w-]+\.(?:com|in|org|net|io|edu|gov))', task)
+        if domain_match:
+            target_domain = extract_domain(domain_match.group(1))
+
+    self_healing_context = ""
+    # -------------------------------------------------------------------------
+    # DUAL-ENGINE: Fast-Path Compiled Adapter Dispatcher
+    # -------------------------------------------------------------------------
+    if active_graph_store and target_domain:
+        try:
+            matched_adapters = active_graph_store.find_matching_adapter(target_domain, task, limit=1)
+            if matched_adapters and matched_adapters[0].get("match_score", 0) > 0:
+                best_adapter = matched_adapters[0]
+                adapter_name = best_adapter.get("name", "site-adapter")
+                logger.info(f"⚡ Fast-Path candidate found: '{adapter_name}' for domain {target_domain}")
+                await _emit("thinking", {"detail": f"⚡ Fast-Path match found: {adapter_name}. Verifying DOM..."})
+
+                from graph.adapter_runner import verify_dom_fingerprint, execute_fast_path_adapter, AdapterExecutionError
+                from graph.adapter_compiler import extract_parameters_from_task
+
+                dom_ok, missing_sel = verify_dom_fingerprint(best_adapter.get("dom_fingerprint", {}), default_cdp_url)
+                if dom_ok:
+                    param_schema = best_adapter.get("parameter_schema", {})
+                    extracted_params = await extract_parameters_from_task(task, param_schema, llm) if param_schema else {}
+
+                    try:
+                        fast_res = execute_fast_path_adapter(
+                            adapter=best_adapter,
+                            params=extracted_params,
+                            default_cdp_url=default_cdp_url,
+                            graph_store=active_graph_store,
+                            agent_id=agent_id
+                        )
+                        dur_ms = fast_res.get("durationMs", 0)
+                        final_text = f"⚡ **Executed via Fast-Path Adapter (`{adapter_name}`)** in {dur_ms}ms.\n\n{fast_res.get('output', '')}"
+                        metadata["fast_path_executed"] = True
+                        metadata["adapter_id"] = best_adapter.get("id")
+                        metadata["duration_seconds"] = time.monotonic() - loop_start_time
+
+                        if active_graph_store:
+                            try:
+                                active_graph_store.complete_agent(agent_id, "completed", 1)
+                                active_graph_store.create_episode(agent_id, "completed", final_text)
+                            except Exception:
+                                pass
+
+                        await _emit("completed", {
+                            "type": "result",
+                            "is_conversational": False,
+                            "fast_path": True,
+                            "adapter_name": adapter_name,
+                            "content": final_text,
+                            "text": final_text,
+                            "result": final_text,
+                            "done": True,
+                            "duration_seconds": metadata["duration_seconds"]
+                        })
+                        return AgentLoopResult(final_text, metadata)
+
+                    except AdapterExecutionError as aee:
+                        logger.warning(f"⚡ Fast-Path failed: {aee.error_detail}. Dropping into Self-Healing Slow Path...")
+                        await _emit("thinking", {"detail": f"Website layout change detected on {target_domain}. Self-healing in progress..."})
+                        self_healing_context = f"""
+---
+[SELF-HEALING ADAPTER FAILURE NOTICE]
+A previously compiled Fast-Path SiteAdapter for {target_domain} ('{adapter_name}') failed execution.
+Failed Selector: {aee.failed_selector or 'Unknown selector'}
+Error Detail: {aee.error_detail}
+Previous Script Template:
+{aee.code}
+
+INSTRUCTION: Inspect the current live DOM, find the updated selector, complete the task, and ensure your final response details the repaired selector so the system can update the adapter.
+---
+"""
+                else:
+                    logger.info(f"⚡ Fast-Path DOM signature mismatch (missing '{missing_sel}'). Falling back to slow path.")
+        except Exception as fpe:
+            logger.warning(f"Fast-path evaluation error: {fpe}")
 
     await _emit("thinking", {"detail": "Analyzing user task and retrieving context..."})
     auto_context_text = ""
@@ -859,12 +1182,22 @@ Schema:
                         s_lines.append(f"Skill: {sk['name']}\nDescription: {sk['description']}\nSnippet:\n{sk['code_snippet']}\n---")
                     s_lines.append("[/PROVEN BROWSER SKILLS]")
                     domain_skills_text = "\n".join(s_lines)
+
+                # 3. Inject known Anti-Patterns / Pitfalls for domain
+                aps = active_graph_store.get_domain_antipatterns(target_domain, limit=3)
+                if aps:
+                    ap_lines = [f"\n---\n[KNOWN DOM TRAPS & ANTI-PATTERNS FOR {target_domain.upper()}]"]
+                    for ap in aps:
+                        ap_lines.append(f"- Trap ({ap['trap_type']}): Failed selector `{ap['failed_selector']}`. Mitigation: {ap['mitigation_hint']}")
+                    ap_lines.append("[/KNOWN DOM TRAPS]")
+                    antipatterns_text = "\n".join(ap_lines)
         except Exception as ue:
             logger.warning(f"Error fetching user memory or domain skills: {ue}")
 
+    antipatterns_text = locals().get("antipatterns_text", "")
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content=task + auto_context_text + user_context_text + domain_skills_text + procedure_context_text)
+        HumanMessage(content=task + self_healing_context + auto_context_text + user_context_text + domain_skills_text + antipatterns_text + procedure_context_text)
     ]
     
     def _invoke_tool(tool_obj, args: dict, tool_name: str) -> str:
@@ -876,6 +1209,34 @@ Schema:
             return tool_obj.invoke(args)
         except ValidationError as ve:
             # Build a field-level error message the LLM can act on.
+            field_errors = []
+            for err in ve.errors():
+                loc = ".".join(str(p) for p in err["loc"]) if err["loc"] else "(unknown)"
+                field_errors.append(f"{loc}: {err['msg']}")
+            detail = "; ".join(field_errors)
+            logger.warning(f"Tool '{tool_name}' validation error: {detail}")
+            import json as _json
+            return _json.dumps({
+                "error": "validation_error",
+                "tool": tool_name,
+                "detail": detail,
+                "fields": [{
+                    "field": ".".join(str(p) for p in err["loc"]),
+                    "msg": err["msg"],
+                    "type": err["type"]
+                } for err in ve.errors()]
+            })
+
+    async def _ainvoke_tool(tool_obj, args: dict, tool_name: str) -> str:
+        """Invoke an async or sync LangChain tool, returning a structured error string on
+        pydantic ValidationError so the LLM can correct the call.
+        All other exceptions propagate normally.
+        """
+        try:
+            if hasattr(tool_obj, "ainvoke"):
+                return await tool_obj.ainvoke(args)
+            return await asyncio.to_thread(tool_obj.invoke, args)
+        except ValidationError as ve:
             field_errors = []
             for err in ve.errors():
                 loc = ".".join(str(p) for p in err["loc"]) if err["loc"] else "(unknown)"
@@ -938,6 +1299,7 @@ Schema:
                 targs = tool_call["args"]
 
                 label_map = {
+                    "browser_click": f"Clicking element: {targs.get('selector', '')}",
                     "run_browser_harness": "Interacting with browser page",
                     "create_hidden_tab": f"Opening background tab: {targs.get('url', '')}",
                     "search_memory": f"Searching knowledge memory for '{targs.get('query', '')}'",
@@ -960,7 +1322,12 @@ Schema:
                     "success": True
                 }
 
-                if tool_call["name"] == "run_browser_harness":
+                if tool_call["name"] == "browser_click":
+                    result = await _ainvoke_tool(browser_click, tool_call["args"], "browser_click")
+                    if isinstance(result, str) and (result.startswith("Error") or "blocked by nervous system" in result or "validation_error" in result):
+                        is_error = True
+                    messages.append(ToolMessage(content=result, tool_call_id=tool_call["id"]))
+                elif tool_call["name"] == "run_browser_harness":
                     code = tool_call["args"].get("code", "")
                     target_ws = tool_call["args"].get("target_tab_ws") or None
                     invoke_args = {"code": code}
@@ -1249,6 +1616,27 @@ async def list_cdp_targets():
         return {"targets": targets}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/agent/cursor/notify")
+async def notify_cursor(payload: dict):
+    """
+    Lightweight visual cursor notification hook for browser-harness actions.
+    Emits an async CDP event to smoothly animate the visual cursor in Comex.
+    """
+    if not VISUAL_CURSOR_ENABLED:
+        return {"status": "disabled"}
+    try:
+        x = float(payload.get("x", 0))
+        y = float(payload.get("y", 0))
+        action = str(payload.get("action", "click"))
+        tab_id = str(payload.get("tabId", "active_tab"))
+        print(f"[CURSOR-HOOK] POST /agent/cursor/notify x={x} y={y} tabId={tab_id}", flush=True)
+        logger.info(f"[CURSOR-HOOK] POST /agent/cursor/notify x={x} y={y} tabId={tab_id}")
+        asyncio.create_task(_send_visual_cursor_cdp(x, y, action, tab_id))
+    except Exception as e:
+        logger.warning(f"Error in notify_cursor: {e}")
+    return {"status": "ok"}
 
 if __name__ == "__main__":
     import uvicorn
